@@ -401,7 +401,9 @@ def upload_captures(base_captures_dir: list):
     os.chdir(orig_dir)
 
 
-def convert_videos(videos):
+def convert_videos():
+    global videos_queue
+
     def convert_video(video_input: str, video_output: str):
         convert_command = [
             'ffmpeg',
@@ -422,7 +424,7 @@ def convert_videos(videos):
 
         subprocess.Popen(convert_command)
 
-    for video_queue in videos:
+    for video_queue in videos_queue:
         convert_video(video_queue(0), video_queue(1))
 
 
@@ -483,7 +485,7 @@ print("- Creating analyzers")
 generate_analyzers()
 
 print('- Converting videos')
-convert_videos(videos_queue)
+convert_videos()
 
 print("- Upload captures")
 upload_captures(captures_dir)

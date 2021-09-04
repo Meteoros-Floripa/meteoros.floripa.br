@@ -9,6 +9,7 @@ import subprocess
 import yaml
 import time
 import sys
+import _thread
 from xml.dom import minidom
 from typing import List
 from git import Repo
@@ -27,6 +28,7 @@ PATH_OF_SITE_CAPTURES = "{}/../_captures/".format(PATH)
 PATH_OF_WATCH_CAPTURES = "{}/../_watches/".format(PATH)
 PATH_OF_ANALYZERS = "{}/../_data/".format(PATH)
 PATH_OF_STATIONS = "{}/../_stations/".format(PATH)
+num_thread = 0
 
 
 def load_config():
@@ -186,9 +188,12 @@ def generate_posts():
 
 
 def generate_watches():
+    global num_thread
+
     def convert_video(video_input: str, video_output: str):
         convert_command = [
             'ffmpeg',
+            '-q',
             '-n',
             '-i',
             video_input,
@@ -205,6 +210,7 @@ def generate_watches():
 
         subprocess.Popen(convert_command)
 
+    num_thread += 1
     connection_cursor = connection.cursor()
     connection_cursor.execute("""
     SELECT night_start, station, files, files_full_path
@@ -241,6 +247,8 @@ def generate_watches():
         filehandle.write("capture: {}\n".format(file.replace('P.jpg', 'T.jpg')))
         filehandle.write("---\n")
         filehandle.close()
+
+    num_thread -= 1
 
 
 def generate_analyzers():
@@ -432,51 +440,50 @@ def git_push():
         print('Some error occurred while pushing the code')
 
 
-if __name__ == '__main__':
-    print("- Connecting to database")
-    connection = sqlite3.connect(':memory:')
+print("- Connecting to database")
+connection = sqlite3.connect(':memory:')
 
-    print("- Loading site configuration")
-    config = load_config()
-    days_back = config['build']['days']
-    captures_dir = config['build']['captures']
-    stations = config['stations']
+print("- Loading site configuration")
+config = load_config()
+days_back = config['build']['days']
+captures_dir = config['build']['captures']
+stations = config['stations']
 
-    print('- Reading captures')
-    captures = get_matching_captures(captures_dir, days_back)
+print('- Reading captures')
+captures = get_matching_captures(captures_dir, days_back)
 
-    if len(captures) == 0:
-        print("- Nothing to do")
-        exit(0)
+if len(captures) == 0:
+    print("- Nothing to do")
+    exit(0)
 
-    print("- Cleaning files")
-    cleanup()
+print("- Cleaning files")
+cleanup()
 
-    print("- Organizing captures")
-    organize_captures(captures)
+print("- Organizing captures")
+_thread.start_new_thread(organize_captures, (captures,))
 
-    print("- Creating stations files")
-    generate_stations(stations)
+print("- Creating stations files")
+generate_stations(stations)
 
-    print("- Creating captures")
-    generate_captures()
+print("- Creating captures")
+generate_captures()
 
-    print("- Creating pages")
-    generate_posts()
+print("- Creating pages")
+generate_posts()
 
-    print("- Creating watches")
-    generate_watches()
+print("- Creating watches")
+generate_watches()
 
-    print("- Creating analyzers")
-    generate_analyzers()
+print("- Creating analyzers")
+generate_analyzers()
 
-    print("- Upload captures")
-    upload_captures(captures_dir)
+print("- Upload captures")
+upload_captures(captures_dir)
 
-    print("- Push to git")
-    git_push()
+print("- Push to git")
+git_push()
 
-    print("- Closing database connection")
-    connection.close()
+print("- Closing database connection")
+connection.close()
 
-    print("- Done :)")
+print("- Done :)")

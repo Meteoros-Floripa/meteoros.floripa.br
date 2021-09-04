@@ -19,7 +19,6 @@ from b2sdk.v1 import parse_sync_folder
 from b2sdk.v1 import Synchronizer
 from PIL import ImageChops, Image
 
-
 PATH = os.path.dirname(__file__)
 PATH_OF_GIT_REPO = "{}/../".format(PATH)
 CONFIG_FILE = "{}/../_config.yml".format(PATH)
@@ -29,6 +28,7 @@ PATH_OF_WATCH_CAPTURES = "{}/../_watches/".format(PATH)
 PATH_OF_ANALYZERS = "{}/../_data/".format(PATH)
 PATH_OF_STATIONS = "{}/../_stations/".format(PATH)
 num_thread = 0
+videos_queue = []
 
 
 def load_config():
@@ -145,7 +145,9 @@ def generate_captures():
                 filehandle.write("label: {}\n".format(night_start))
                 filehandle.write("title: Capturas da esta&ccedil;&atilde;o {}\n".format(station))
                 filehandle.write("station: {}\n".format(station))
-                filehandle.write("date: {}-{}-{} {}:{}:{}\n".format(capture_year, capture_month, capture_day, capture_hour, capture_minute, capture_second))
+                filehandle.write(
+                    "date: {}-{}-{} {}:{}:{}\n".format(capture_year, capture_month, capture_day, capture_hour,
+                                                       capture_minute, capture_second))
                 filehandle.write("preview: {}/stack.jpg\n".format(os.path.dirname(file)))
                 filehandle.write("capturas:\n")
             else:
@@ -188,29 +190,8 @@ def generate_posts():
 
 
 def generate_watches():
-    global num_thread
+    global videos_queue
 
-    def convert_video(video_input: str, video_output: str):
-        convert_command = [
-            'ffmpeg',
-            '-q',
-            '-n',
-            '-i',
-            video_input,
-            '-c:v',
-            'libx264',
-            '-profile:v',
-            'baseline',
-            '-level',
-            '3.0',
-            '-pix_fmt',
-            'yuv420p',
-            video_output
-        ]
-
-        subprocess.Popen(convert_command)
-
-    num_thread += 1
     connection_cursor = connection.cursor()
     connection_cursor.execute("""
     SELECT night_start, station, files, files_full_path
@@ -218,7 +199,6 @@ def generate_watches():
     """)
 
     for data in connection_cursor.fetchall():
-        night_start = str(data[0])
         station = str(data[1])
         file = str(data[2])
         file_input = data[3].replace('P.jpg', '.avi')
@@ -234,21 +214,21 @@ def generate_watches():
         second = capture_base_filename_spliced[1][4:6]
 
         if os.path.exists(file_input) and not os.path.exists(file_output):
-            convert_video(file_input, file_output)
+            videos_queue.append((file_input, file_output))
 
         post_filename = PATH_OF_WATCH_CAPTURES + "{}.md".format(capture_base_filename.replace('P.jpg', ''))
 
         filehandle = open(post_filename, "w+")
         filehandle.write("---\n")
         filehandle.write("layout: watch\n")
-        filehandle.write("title: {} - {}/{}/{} - {}\n".format(station, day, month, year, capture_base_filename.replace('P.jpg', 'T.jpg')))
+        filehandle.write("title: {} - {}/{}/{} - {}\n".format(station, day, month, year,
+                                                              capture_base_filename.replace('P.jpg', 'T.jpg')))
         filehandle.write("date: {}-{}-{} {}:{}:{}\n".format(year, month, day, hour, minute, second))
-        filehandle.write("permalink: /{}/{}/{}/watch/{}\n".format(year, month, day, capture_base_filename.replace('P.jpg', '')))
+        filehandle.write(
+            "permalink: /{}/{}/{}/watch/{}\n".format(year, month, day, capture_base_filename.replace('P.jpg', '')))
         filehandle.write("capture: {}\n".format(file.replace('P.jpg', 'T.jpg')))
         filehandle.write("---\n")
         filehandle.close()
-
-    num_thread -= 1
 
 
 def generate_analyzers():
@@ -421,6 +401,31 @@ def upload_captures(base_captures_dir: list):
     os.chdir(orig_dir)
 
 
+def convert_videos(videos):
+    def convert_video(video_input: str, video_output: str):
+        convert_command = [
+            'ffmpeg',
+            '-q',
+            '-n',
+            '-i',
+            video_input,
+            '-c:v',
+            'libx264',
+            '-profile:v',
+            'baseline',
+            '-level',
+            '3.0',
+            '-pix_fmt',
+            'yuv420p',
+            video_output
+        ]
+
+        subprocess.Popen(convert_command)
+
+    for video_queue in videos:
+        convert_video(video_queue(0), video_queue(1))
+
+
 def git_push():
     try:
         today = datetime.date.today()
@@ -460,7 +465,7 @@ print("- Cleaning files")
 cleanup()
 
 print("- Organizing captures")
-_thread.start_new_thread(organize_captures, (captures,))
+organize_captures(captures)
 
 print("- Creating stations files")
 generate_stations(stations)
@@ -476,6 +481,9 @@ generate_watches()
 
 print("- Creating analyzers")
 generate_analyzers()
+
+print('- Converting videos')
+convert_videos(videos_queue)
 
 print("- Upload captures")
 upload_captures(captures_dir)
